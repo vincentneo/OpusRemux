@@ -115,8 +115,9 @@ public class Remuxer {
         
         let fileDuration = packetDurations.reduce(0, +)
         let creationDate = Date()
-        let movieTimescale: UInt32 = 1000
-        let movieDuration = UInt32(UInt64(fileDuration) * UInt64(movieTimescale) / 48000)
+        // Per Opus ISOBMFF spec 4.4: movie timescale should match media timescale (48000) to avoid rounding
+        let movieTimescale: UInt32 = 48000
+        let movieDuration = fileDuration
         
         let ftyp = MP4.Ftyp(brand: .baseMedia, version: 1)
         let ftypData = ftyp.encode()
@@ -166,11 +167,13 @@ public class Remuxer {
             ]
             let stsc = MP4.SampleToChunk(entries: stscEntries)
             
-            // Opus pre-roll: 2 sbgp entries:
-            // - First 4 samples: group_description_index=0 (no pre-roll needed, these ARE the pre-roll)
-            // - Remaining samples: group_description_index=1 (use roll group with -4 distance)
-            let preRollPackets: UInt32 = 4 // 80ms pre-roll at 20ms/packet
-            let rollDistance: Int16 = -4
+            // Opus pre-roll: Per spec 4.3.6.2, 80ms pre-roll is required after random access
+            // roll_distance = -(number of samples needed for 80ms)
+            // Calculate based on first packet duration (in 48kHz samples)
+            let firstPacketDuration = packetDurations.first ?? 960 // Default 20ms
+            let preRollSamples: UInt32 = 80 * 48 // 80ms * 48 samples/ms = 3840 samples
+            let preRollPackets = max(1, (preRollSamples + firstPacketDuration - 1) / firstPacketDuration)
+            let rollDistance = -Int16(preRollPackets)
             let sgpd = MP4.SampleGroupDescription(entries: [rollDistance])
             
             let sbgpEntries: [(sampleCount: UInt32, groupDescriptionIndex: UInt32)]
@@ -216,10 +219,11 @@ public class Remuxer {
             let mdia = MP4.Media(mdhd: mdhd, hdlr: hdlr, minf: minf)
             
             // Edts - Use edit list for proper pre-skip handling
+            // Per spec 4.4: segment_duration = valid samples, media_time = priming samples
             let preSkipSamples = UInt32(head.preSkip)
             let playableDuration = fileDuration > preSkipSamples ? fileDuration - preSkipSamples : 0
             let preSkipMediaTime = Int32(head.preSkip)
-            let trackDuration = UInt32(UInt64(playableDuration) * UInt64(movieTimescale) / 48000)
+            let trackDuration = playableDuration // Same timescale now
             let elstEntry = MP4.EditList.Entry(
                 segmentDuration: trackDuration,
                 mediaTime: preSkipMediaTime,
