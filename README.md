@@ -12,6 +12,16 @@ As there is no conversions on the actual audio data, file sizes are comparable t
 
 Yes. Check out https://www.opus-codec.org/docs/opus_in_isobmff.html
 
+## Usage example
+```Swift
+import OpusRemux
+
+let source: URL = ... // your .ogg file
+let destination: URL = ... // where the .m4a file should go
+
+try Remuxer.remux(source: source, destination: destination)
+```
+
 ## Limitations
 
 Testing on watchOS have revealed that while `AVAudioPlayer` does play the opus data encapsulated `m4a` files, which are generated using this package just fine, it is unable to seek forwards or backwards.
